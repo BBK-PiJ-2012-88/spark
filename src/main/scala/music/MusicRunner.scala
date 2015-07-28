@@ -1,28 +1,34 @@
 package music
 
 import java.io.{PrintWriter, File}
+import java.util.Date
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkContext, SparkConf}
+import org.joda.time.DateTime
 
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.math.Ordering
 import scala.util.Try
 
-class MusicRunner {
+object MusicRunner {
 
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf().setAppName("Music App").setMaster("local")
     val context = new SparkContext(conf)
-    val rawData = context.textFile(args(0))
+    val rawData = context.textFile(new File(args(0)).toURI.getPath.toString)
     val records = rawData.map(line => Try(RecordOfPlay(line))).filter(_.isSuccess).map(_.get)
     println(s"successfully mapped approximately ${records.countApprox(10).getFinalValue()} records")
     val userSongCount = toUserSongCount(records)
+    println("got user song count")
     writeSongCount(userSongCount)
     val top100Songs = toTop100Songs(records)
+    println("got top 100 songs")
     writeMostPlayed(top100Songs)
     val longestSessions = to10LongestSessions(records)
+    println("got longest sessions")
+    writeLongestSessions(longestSessions)
     context.stop()
   }
 
@@ -41,11 +47,11 @@ class MusicRunner {
     }
   }
 
-  def writeLongestSessions(sessions: List[Session]): Future[Unit] = {
+  def writeLongestSessions(sessions: Array[Session]): Future[Unit] = {
     Future {
       val file = new File("longest sessions.txt")
       print(file){p => sessions.foreach(session => {
-        p.println(s"user: ${session.userId}, start: ${session.start}, finish: ${session.finish.getOrElse(-1)}")
+        p.println(s"user: ${session.userId}, start: ${new DateTime(session.start).toString}, finish: ${new DateTime(session.finish.getOrElse(-1)).toString}")
         p.println(s"tracks: ${session.songs.mkString(", ")}")
       })}
     }
@@ -134,9 +140,11 @@ object RecordOfPlay {
 
   def apply(line: String): RecordOfPlay = line.split("\\t") match {
     case Array(userId, timestamp, artistId, artist, trackId, trackName) =>
-      this(userId, timestamp.toLong, Some(artistId), artist, trackId, trackName)
+      val date = new DateTime(timestamp)
+      this(userId, date.getMillis, Some(artistId), artist, trackId, trackName)
     case Array(userId, timestamp, artist, trackId, trackName) =>
-      this(userId, timestamp.toLong, None, artist, trackId, trackName)
+      val date = new DateTime(timestamp)
+      this(userId, date.getMillis, None, artist, trackId, trackName)
     case _ => throw new IllegalArgumentException("Cannot construct record of play")
   }
 }
